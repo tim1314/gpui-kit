@@ -1,0 +1,24 @@
+schema_version: 1
+module_path: ""
+title: GPUI Kit 桌面应用框架仓库根
+scope:
+    - README.md
+    - README.zh-CN.md
+    - Cargo.toml
+    - Cargo.lock
+    - LICENSE-DOCS.md
+    - .gitignore
+    - .rustfmt.toml
+    - _typos.toml
+    - flake.nix
+    - flake.lock
+    - Makefile
+    - release-notes.md
+    - AGENTS.md
+    - CLAUDE.md
+    - CONTRIBUTING.md
+    - .theme-schema.json
+    - LICENSE-APACHE
+source_files: []
+depends_on: []
+related_to: []

@@ -1,0 +1,9 @@
+schema_version: 1
+module_path: themes
+title: 主题配色集（Themes）
+scope:
+    - themes/
+source_files: []
+depends_on: []
+related_to:
+    - path: crates

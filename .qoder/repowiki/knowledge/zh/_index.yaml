@@ -1,0 +1,108 @@
+# 知识卡导出索引文件
+schema_version: 1
+locale: zh-CN
+branch: main
+nodes_managed: true
+exported_at: "2026-11-02T03:31:21Z"
+modules:
+    "":
+        dir_name: GPUI Kit 桌面应用框架仓库根
+        title: GPUI Kit 桌面应用框架仓库根
+        scope:
+            - README.md
+            - README.zh-CN.md
+            - Cargo.toml
+            - Cargo.lock
+            - LICENSE-DOCS.md
+            - .gitignore
+            - .rustfmt.toml
+            - _typos.toml
+            - flake.nix
+            - flake.lock
+            - Makefile
+            - release-notes.md
+            - AGENTS.md
+            - CLAUDE.md
+            - CONTRIBUTING.md
+            - .theme-schema.json
+            - LICENSE-APACHE
+        source_files: []
+        children:
+            - crates
+            - docs
+            - examples
+            - scripts
+            - skills
+            - themes
+            - website
+        depends_on: []
+        related_to: []
+    crates:
+        dir_name: GPUI Kit 多 crate 集合（Shell _ Base _ Component _ Assets _ Story _ Webview）
+        title: GPUI Kit 多 crate 集合（Shell / Base / Component / Assets / Story / Webview）
+        scope:
+            - crates/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: themes
+    docs:
+        dir_name: 项目架构与 GPUI Shell 文档
+        title: 项目架构与 GPUI Shell 文档
+        scope:
+            - docs/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    examples:
+        dir_name: GPUI Component 示例集合
+        title: GPUI Component 示例集合
+        scope:
+            - examples/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to: []
+    scripts:
+        dir_name: 构建与发布辅助脚本集
+        title: 构建与发布辅助脚本集
+        scope:
+            - script/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: website
+    skills:
+        dir_name: GPUI Kit 技能定义与参考文档
+        title: GPUI Kit 技能定义与参考文档
+        scope:
+            - skills/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: website
+    themes:
+        dir_name: 主题配色集（Themes）
+        title: 主题配色集（Themes）
+        scope:
+            - themes/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: crates
+    website:
+        dir_name: GPUI-Kit 文档站点（Astro + Vue）
+        title: GPUI-Kit 文档站点（Astro + Vue）
+        scope:
+            - website/
+        source_files: []
+        children: []
+        depends_on: []
+        related_to:
+            - path: scripts
+            - path: skills

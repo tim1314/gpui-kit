@@ -1,0 +1,10 @@
+schema_version: 1
+module_path: website
+title: GPUI-Kit 文档站点（Astro + Vue）
+scope:
+    - website/
+source_files: []
+depends_on: []
+related_to:
+    - path: scripts
+    - path: skills
