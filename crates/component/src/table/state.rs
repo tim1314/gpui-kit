@@ -1555,11 +1555,12 @@ where
         _row_ix: Option<usize>,
         col_ix: usize,
         _window: &mut Window,
-        _cx: &mut Context<Self>,
+        cx: &mut Context<Self>,
     ) -> Div {
         let Some(col_group) = self.col_groups.get(col_ix) else {
             return div();
         };
+        let is_rtl = gpui_base::LayoutDirection::global(cx).is_rtl();
 
         let col_width = col_group.width;
         let col_padding = col_group.column.paddings;
@@ -1573,9 +1574,11 @@ where
             .table_cell_size(self.options.size)
             // Text alignment is inherited, so this aligns the header name and
             // the delegate's cell text without changing how cells lay out.
-            .map(|this| match col_group.column.align {
-                TextAlign::Center => this.text_center(),
-                TextAlign::Right => this.text_right(),
+            // `Left`/`Right` read as start/end, so they swap right to left.
+            .map(|this| match (col_group.column.align, is_rtl) {
+                (TextAlign::Center, _) => this.text_center(),
+                (TextAlign::Right, false) | (TextAlign::Left, true) => this.text_right(),
+                (TextAlign::Right, true) => this.text_left(),
                 _ => this,
             })
             .map(|this| match col_padding {
@@ -2014,7 +2017,7 @@ where
             .child(self.render_leading_resize_handle(col_ix, window, cx))
             // to save the bounds of this col.
             .on_prepaint({
-                let view = cx.entity().clone();
+                let view = cx.entity();
                 move |bounds, _, cx| view.update(cx, |r, _| r.col_groups[col_ix].bounds = bounds)
             })
     }
@@ -2272,7 +2275,7 @@ where
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> impl IntoElement {
-        let view = cx.entity().clone();
+        let view = cx.entity();
         let header_row_height = self.header_row_height();
         let layout = self.header_layout.clone();
 
@@ -2340,7 +2343,7 @@ where
         // `selected_row()` is `None` outside row mode, so a selected cell or
         // column never highlights its row.
         let is_selected = self.selected_row() == Some(row_ix);
-        let view = cx.entity().clone();
+        let view = cx.entity();
         let row_height = self.options.size.table_row_height();
 
         if row_ix < rows_count {
@@ -2836,7 +2839,7 @@ where
             .overflow_hidden()
             .child(self.render_table_header(scrollable_cols.clone(), window, cx))
             .context_menu({
-                let view = cx.entity().clone();
+                let view = cx.entity();
                 move |this, window: &mut Window, cx: &mut Context<PopupMenu>| {
                     if let Some(row_ix) = view.read(cx).right_clicked_row {
                         view.update(cx, |menu, cx| {

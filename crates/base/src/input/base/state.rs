@@ -40,6 +40,7 @@ use super::{
 use crate::actions::{SelectDown, SelectLeft, SelectRight, SelectUp};
 use crate::input::blink_cursor::CURSOR_WIDTH;
 use crate::input::movement::MoveDirection;
+use crate::input::rope_ext::{next_grapheme_boundary, previous_grapheme_boundary};
 use crate::input::{
     InputEdit, InputExtras as _, Position, RopeExt as _, element::RIGHT_MARGIN, layout::LastLayout,
 };
@@ -556,7 +557,7 @@ pub struct InputBaseState<M: InputModeKind> {
     projected_editor_style: InputEditorStyle,
     pub(super) fold_placeholder_renderer: Option<FoldPlaceholderRenderer>,
     pub(super) fold_background: Option<Hsla>,
-    accessibility: Option<InputAccessibility>,
+    pub(super) accessibility: Option<InputAccessibility>,
     /// What paints in place of Base's editor scrollbar, when a consumer
     /// supplies its own.
     pub(super) scrollbar_renderer: Option<crate::input::EditorScrollbarRenderer>,
@@ -576,6 +577,7 @@ pub struct InputBaseState<M: InputModeKind> {
         Rc<dyn Fn(NativeMenu, InputContextMenuCapabilities, Point<Pixels>, &mut Window, &mut App)>,
     >,
     pending_context_menu: Option<(Point<Pixels>, usize)>,
+    context_menu_offset: Option<usize>,
 
     /// Whether the context menu that shows on right-click is enabled.
     ///
@@ -1051,6 +1053,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             diagnostic_popover: None,
             context_menu_handler: None,
             pending_context_menu: None,
+            context_menu_offset: None,
             enable_context_menu: true,
             completion_inserting: false,
             overlay_action_handler: None,
@@ -1756,11 +1759,31 @@ impl<M: InputModeKind> InputBaseState<M> {
 
     pub(super) fn select_left(&mut self, _: &SelectLeft, _: &mut Window, cx: &mut Context<Self>) {
         self.undo_manager.break_transaction_coalescing();
-        self.select_all_cursors_to(|s, sel| s.previous_boundary(sel.cursor_offset()), cx);
+        let mirrored = self.arrows_mirrored(cx);
+        self.select_all_cursors_to(
+            move |s, sel| {
+                if mirrored {
+                    s.next_boundary(sel.cursor_offset())
+                } else {
+                    s.previous_boundary(sel.cursor_offset())
+                }
+            },
+            cx,
+        );
     }
 
     pub(super) fn select_right(&mut self, _: &SelectRight, _: &mut Window, cx: &mut Context<Self>) {
-        self.select_all_cursors_to(|s, sel| s.next_boundary(sel.cursor_offset()), cx);
+        let mirrored = self.arrows_mirrored(cx);
+        self.select_all_cursors_to(
+            move |s, sel| {
+                if mirrored {
+                    s.previous_boundary(sel.cursor_offset())
+                } else {
+                    s.next_boundary(sel.cursor_offset())
+                }
+            },
+            cx,
+        );
     }
 
     pub(super) fn select_up(&mut self, _: &SelectUp, _: &mut Window, cx: &mut Context<Self>) {
@@ -1868,8 +1891,15 @@ impl<M: InputModeKind> InputBaseState<M> {
         cx: &mut Context<Self>,
     ) {
         self.undo_manager.break_transaction_coalescing();
+        let mirrored = self.arrows_mirrored(cx);
         self.select_all_cursors_to(
-            |s, sel| s.previous_start_of_word_at(sel.cursor_offset()),
+            move |s, sel| {
+                if mirrored {
+                    s.next_end_of_word_at(sel.cursor_offset())
+                } else {
+                    s.previous_start_of_word_at(sel.cursor_offset())
+                }
+            },
             cx,
         );
     }
@@ -1881,7 +1911,17 @@ impl<M: InputModeKind> InputBaseState<M> {
         cx: &mut Context<Self>,
     ) {
         self.undo_manager.break_transaction_coalescing();
-        self.select_all_cursors_to(|s, sel| s.next_end_of_word_at(sel.cursor_offset()), cx);
+        let mirrored = self.arrows_mirrored(cx);
+        self.select_all_cursors_to(
+            move |s, sel| {
+                if mirrored {
+                    s.previous_start_of_word_at(sel.cursor_offset())
+                } else {
+                    s.next_end_of_word_at(sel.cursor_offset())
+                }
+            },
+            cx,
+        );
     }
 
     /// Return the start offset of the previous word.
@@ -2552,6 +2592,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             return;
         }
 
+        self.context_menu_offset = Some(offset);
         if !self.active_selection().contains(offset) {
             self.move_to(offset, None, cx);
         }
@@ -3194,6 +3235,11 @@ impl<M: InputModeKind> InputBaseState<M> {
     }
 
     pub(super) fn copy(&mut self, _: &Copy, _: &mut Window, cx: &mut Context<Self>) {
+        if self.selections.iter().all(|sel| sel.is_empty()) {
+            // Nothing selected here: let Root copy the window's text selection.
+            cx.propagate();
+            return;
+        }
         if !self.is_copyable() {
             return;
         }
@@ -3490,6 +3536,16 @@ impl<M: InputModeKind> InputBaseState<M> {
             .collect();
         self.selections.replace_all(restored);
         self.selections.merge_overlapping();
+    }
+
+    /// Get byte offset of the text under the pointer at the right-click that last opened
+    /// the context menu.
+    ///
+    /// A right-click inside the selection keeps the selection and the cursor, so a custom
+    /// context menu reads this to find the word under the pointer. The offset is the
+    /// UTF-8 offset.
+    pub fn context_menu_offset(&self) -> Option<usize> {
+        self.context_menu_offset
     }
 
     /// Get byte offset of the cursor.
@@ -3987,12 +4043,13 @@ impl<M: InputModeKind> InputBaseState<M> {
     }
 
     pub(super) fn previous_boundary(&self, offset: usize) -> usize {
-        let offset = self.cursor_boundary(offset.saturating_sub(1), Bias::Left);
+        let offset =
+            self.cursor_boundary(previous_grapheme_boundary(&self.text, offset), Bias::Left);
         self.clamp_offset_to_visible_backward(offset)
     }
 
     pub(super) fn next_boundary(&self, offset: usize) -> usize {
-        let offset = self.cursor_boundary(offset.saturating_add(1), Bias::Right);
+        let offset = self.cursor_boundary(next_grapheme_boundary(&self.text, offset), Bias::Right);
         self.clamp_offset_to_visible_forward(offset)
     }
 
@@ -5134,6 +5191,7 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
             .projected_editor_style
             .resolved(&crate::Theme::global(cx).tokens);
         let entity = cx.entity();
+        let text_runs = self.accessibility_text_runs(window);
         if self._pending_update {
             self.mode.update_highlighter::<M>(
                 super::mode::HighlighterUpdate {
@@ -5173,6 +5231,9 @@ impl<M: InputModeKind> Render for InputBaseState<M> {
                             && (window.is_a11y_active() || cfg!(feature = "test-support")),
                         |this| this.aria_value(self.text.to_string()),
                     )
+                    .when_some(text_runs, |this, runs| {
+                        this.a11y_synthetic_children(move |builder| runs.push(builder))
+                    })
                     .on_a11y_action(gpui::AccessibleAction::Focus, {
                         let entity = entity.clone();
                         move |_, window, cx| {
@@ -6432,7 +6493,7 @@ mod tests {
             });
 
             Self {
-                input: input.clone().unwrap(),
+                input: input.unwrap(),
                 window_handle: window,
             }
         }
@@ -7280,6 +7341,35 @@ mod tests {
             })
         });
         assert_eq!(cursor.get(), Some(2));
+    }
+
+    #[gpui::test]
+    fn context_menu_handler_can_read_the_offset_under_the_pointer(cx: &mut TestAppContext) {
+        use std::{cell::Cell, rc::Rc};
+        cx.update(crate::init);
+        let input_view = InputView::new(cx);
+        let mut cx = VisualTestContext::from_window(input_view.window_handle.into(), cx);
+        let input = input_view.input;
+        let seen = Rc::new(Cell::new(None));
+
+        cx.update(|window, cx| {
+            input.update(cx, |state, cx| {
+                state.set_value("hello world", window, cx);
+                assert_eq!(state.context_menu_offset(), None);
+                state.select_all(window, cx);
+                let weak = cx.weak_entity();
+                let seen = seen.clone();
+                state.on_context_menu(Rc::new(move |_, _, _, _, cx| {
+                    seen.set(weak.upgrade().map(|input| {
+                        let input = input.read(cx);
+                        (input.cursor(), input.context_menu_offset())
+                    }));
+                }));
+                // A right-click inside the selection keeps the cursor at its end.
+                state.handle_right_click_menu(point(px(0.), px(0.)), 2, window, cx);
+            })
+        });
+        assert_eq!(seen.get(), Some((11, Some(2))));
     }
 
     #[gpui::test]
@@ -10817,6 +10907,50 @@ mod tests {
     }
 
     #[gpui::test]
+    fn test_cursor_moves_and_deletes_whole_graphemes(cx: &mut TestAppContext) {
+        let input_view = InputView::build(cx, |state| state);
+        let mut cx = VisualTestContext::from_window(input_view.window_handle.into(), cx);
+        let input = input_view.input;
+
+        let graphemes = ["a", "\u{267B}\u{FE0F}", "👍🏽", "👨‍👩‍👧", "🇸🇪", "e\u{301}", "b"];
+        let text = graphemes.concat();
+        let ends: Vec<usize> = graphemes
+            .iter()
+            .scan(0, |end, g| {
+                *end += g.len();
+                Some(*end)
+            })
+            .collect();
+
+        cx.update(|window, cx| {
+            input.update(cx, |state, cx| {
+                state.set_value(text.clone(), window, cx);
+                state.set_selected_range(0..0, cx);
+                for &end in &ends {
+                    state.right(&MoveRight, window, cx);
+                    assert_eq!(state.cursor(), end);
+                }
+                for &end in ends.iter().rev().skip(1).chain([&0]) {
+                    state.left(&MoveLeft, window, cx);
+                    assert_eq!(state.cursor(), end);
+                }
+
+                state.set_selected_range(ends[3]..ends[3], cx);
+                state.backspace(&Backspace, window, cx);
+                assert_eq!(
+                    state.value(),
+                    ["a", graphemes[1], graphemes[2]].concat() + &graphemes[4..].concat()
+                );
+                state.delete(&Delete, window, cx);
+                assert_eq!(
+                    state.value(),
+                    ["a", graphemes[1], graphemes[2]].concat() + &graphemes[5..].concat()
+                );
+            });
+        });
+    }
+
+    #[gpui::test]
     fn test_editor_decorations_follow_typing(cx: &mut TestAppContext) {
         let view = InputView::<EditorMode>::new(cx);
         let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
@@ -12349,6 +12483,69 @@ mod tests {
             let cursors: Vec<usize> = state.selections.iter().map(|s| s.cursor_offset()).collect();
             assert_eq!(cursors, vec![0]);
         });
+    }
+
+    #[gpui::test]
+    fn test_rtl_arrow_keys_move_visually(cx: &mut TestAppContext) {
+        let view = multi_line(cx);
+        let mut cx = VisualTestContext::from_window(view.window_handle.into(), cx);
+        let input = view.input;
+        // Each Arabic letter is two bytes.
+        let text = "مرحبا عالم";
+        let place = |cx: &mut VisualTestContext, offset: usize| {
+            cx.update(|window, cx| {
+                input.update(cx, |state, cx| {
+                    state.set_value(text, window, cx);
+                    let id = state.selections.generate_id();
+                    state
+                        .selections
+                        .replace_all(vec![CursorSelection::new(id, offset, offset)]);
+                });
+            });
+        };
+        let selection = |cx: &mut VisualTestContext| {
+            input.read_with(cx, |state, _| {
+                let sel = state.active_selection();
+                (sel.start, sel.end, sel.cursor_offset())
+            })
+        };
+
+        cx.update(|_, cx| crate::LayoutDirection::Rtl.set_global(cx));
+
+        // Right moves toward the start of a right-to-left paragraph.
+        place(&mut cx, 4);
+        cx.update(|window, cx| input.update(cx, |s, cx| s.right(&MoveRight, window, cx)));
+        assert_eq!(selection(&mut cx).2, 2);
+        cx.update(|window, cx| input.update(cx, |s, cx| s.left(&MoveLeft, window, cx)));
+        assert_eq!(selection(&mut cx).2, 4);
+
+        // Shift-arrows extend the selection the same way.
+        cx.update(|window, cx| input.update(cx, |s, cx| s.select_right(&SelectRight, window, cx)));
+        assert_eq!(selection(&mut cx), (2, 4, 2));
+        place(&mut cx, 4);
+        cx.update(|window, cx| input.update(cx, |s, cx| s.select_left(&SelectLeft, window, cx)));
+        assert_eq!(selection(&mut cx), (4, 6, 6));
+
+        // Word movement: Right goes to the previous word start.
+        let second_word = text.find('ع').unwrap();
+        place(&mut cx, text.len());
+        cx.update(|window, cx| {
+            input.update(cx, |s, cx| s.move_to_next_word(&MoveToNextWord, window, cx))
+        });
+        assert_eq!(selection(&mut cx).2, second_word);
+        place(&mut cx, 0);
+        cx.update(|window, cx| {
+            input.update(cx, |s, cx| {
+                s.move_to_previous_word(&MoveToPreviousWord, window, cx)
+            })
+        });
+        assert_eq!(selection(&mut cx).2, text.find(' ').unwrap());
+
+        // Left to right keeps the logical meaning.
+        cx.update(|_, cx| crate::LayoutDirection::Ltr.set_global(cx));
+        place(&mut cx, 4);
+        cx.update(|window, cx| input.update(cx, |s, cx| s.right(&MoveRight, window, cx)));
+        assert_eq!(selection(&mut cx).2, 6);
     }
 
     #[gpui::test]
