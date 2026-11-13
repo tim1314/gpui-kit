@@ -13,6 +13,7 @@ use gpui::{
     Render, Role, ScrollHandle, SharedString, StatefulInteractiveElement, Styled, Subscription,
     Window, anchored, deferred, div, prelude::FluentBuilder, px,
 };
+use std::rc::Rc;
 
 const CONTEXT: &str = "AppMenuBar";
 pub fn init(cx: &mut App) {
@@ -29,6 +30,9 @@ pub struct AppMenuBar {
     selected_index: Option<usize>,
     action_context: Option<FocusHandle>,
     scroll_handle: ScrollHandle,
+    /// Called when a menu popup is dismissed and no menu is left open, so a
+    /// host that swapped the menu bar in for other content can swap it back.
+    on_dismiss: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
 }
 
 impl AppMenuBar {
@@ -40,10 +44,22 @@ impl AppMenuBar {
                 action_context: None,
                 menus: Vec::new(),
                 scroll_handle: ScrollHandle::new(),
+                on_dismiss: None,
             };
             this.reload(cx);
             this
         })
+    }
+
+    /// Set the callback invoked when a menu popup is dismissed and no menu is
+    /// left open.
+    pub fn set_on_dismiss(&mut self, f: impl Fn(&mut Window, &mut App) + 'static) {
+        self.on_dismiss = Some(Rc::new(f));
+    }
+
+    /// Open the menu at `ix` programmatically, as if its title was clicked.
+    pub fn open_index(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+        self.set_selected_index(Some(ix), window, cx);
     }
 
     /// Reload the menus from the app.
@@ -225,6 +241,11 @@ impl AppMenu {
         self.popup_menu.take();
         self.menu_bar.update(cx, |state, cx| {
             state.on_cancel(&Cancel, window, cx);
+            if !state.has_activated_menu() {
+                if let Some(on_dismiss) = state.on_dismiss.clone() {
+                    on_dismiss(window, cx);
+                }
+            }
         });
     }
 

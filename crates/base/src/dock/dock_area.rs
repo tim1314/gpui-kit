@@ -111,6 +111,7 @@ pub struct DockArea {
 
     locked: bool,
     zoomed: Option<Zoomed>,
+    bottom_spans: bool,
     focus_handle: FocusHandle,
     renderer: Rc<dyn DockAreaRenderer>,
 }
@@ -143,6 +144,7 @@ impl DockArea {
             panels: HashMap::new(),
             locked: false,
             zoomed: None,
+            bottom_spans: false,
             focus_handle: cx.focus_handle(),
             renderer: Rc::new(BareDockArea),
         }
@@ -343,6 +345,21 @@ impl DockArea {
     /// The dock's size along its axis.
     pub fn dock_size(&self, placement: DockPlacement) -> Option<Pixels> {
         self.docks.get(&placement).map(|pane| pane.dock.size())
+    }
+
+    /// Put the bottom dock below the left, centre and right docks instead of
+    /// only below the centre: an open bottom window then spans the whole area
+    /// and the side docks stop above it, as IntelliJ's workbench lays out.
+    pub fn set_bottom_spans_sides(
+        &mut self,
+        spans: bool,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.bottom_spans != spans {
+            self.bottom_spans = spans;
+            cx.notify();
+        }
     }
 
     pub fn set_dock_size(
@@ -1564,32 +1581,42 @@ impl Render for DockArea {
             .track_focus(&self.focus_handle)
             .map(|frame| match self.zoomed_view() {
                 Some(view) => frame.child(view),
-                None => frame
-                    .when_some(
-                        self.render_dock(DockPlacement::Left, window, cx),
-                        ParentElement::child,
-                    )
-                    .child(
-                        renderer
-                            .center_frame(window, cx)
-                            // Same reason as the frame above: the centre is
-                            // whatever the side docks leave, in a column with
-                            // the bottom dock. Without this it is neither, and
-                            // shrinks to its content.
-                            .flex()
-                            .flex_1()
-                            .flex_col()
-                            .overflow_hidden()
-                            .child(self.render_node(self.center.root(), window, cx))
-                            .when_some(
-                                self.render_dock(DockPlacement::Bottom, window, cx),
-                                ParentElement::child,
-                            ),
-                    )
-                    .when_some(
-                        self.render_dock(DockPlacement::Right, window, cx),
-                        ParentElement::child,
-                    ),
+                None => {
+                    let left = self.render_dock(DockPlacement::Left, window, cx);
+                    let right = self.render_dock(DockPlacement::Right, window, cx);
+                    let bottom = self.render_dock(DockPlacement::Bottom, window, cx);
+                    let center = renderer
+                        .center_frame(window, cx)
+                        // Same reason as the frame above: the centre is
+                        // whatever the side docks leave, in a column with
+                        // the bottom dock. Without this it is neither, and
+                        // shrinks to its content.
+                        .flex()
+                        .flex_1()
+                        .flex_col()
+                        .overflow_hidden()
+                        .child(self.render_node(self.center.root(), window, cx));
+                    if self.bottom_spans {
+                        frame.flex_col().child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .flex_1()
+                                .min_h_0()
+                                .min_w_0()
+                                .overflow_hidden()
+                                .when_some(left, ParentElement::child)
+                                .child(center)
+                                .when_some(right, ParentElement::child),
+                        )
+                        .when_some(bottom, ParentElement::child)
+                    } else {
+                        frame
+                            .when_some(left, ParentElement::child)
+                            .child(center.when_some(bottom, ParentElement::child))
+                            .when_some(right, ParentElement::child)
+                    }
+                }
             })
     }
 }

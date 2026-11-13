@@ -14,9 +14,9 @@ use std::{
 
 use gpui::{
     Anchor, AnyElement, AnyView, App, AppContext as _, Context, Div, Empty,
-    InteractiveElement as _, IntoElement, ParentElement as _, Render, ScrollHandle, SharedString,
-    Stateful, StatefulInteractiveElement as _, StyleRefinement, Styled as _, Window, div,
-    prelude::FluentBuilder as _, px,
+    InteractiveElement as _, IntoElement, MouseButton, ParentElement as _, Render, ScrollHandle,
+    SharedString, Stateful, StatefulInteractiveElement as _, StyleRefinement, Styled as _, Window,
+    div, prelude::FluentBuilder as _, px,
 };
 use gpui_base::{
     dock::{
@@ -35,7 +35,7 @@ use crate::{
         toggle_dock_by_user,
     },
     h_flex,
-    menu::DropdownMenu as _,
+    menu::{DropdownMenu as _, PopupMenuItem},
     tab::{Tab, TabBar},
 };
 
@@ -505,6 +505,10 @@ impl TabGroupSkin {
                         let panel = &group.panels()[ix];
                         let handle = PanelHandle::of(panel);
                         let drag = tab_drag(group, ix, cx);
+                        let panel_id = panel.panel_id(cx);
+                        let all_ids: Vec<PanelId> =
+                            group.panels().iter().map(|p| p.panel_id(cx)).collect();
+                        let closable = group.is_panel_closable(panel_id, cx);
 
                         Tab::new()
                             .ix(ix)
@@ -590,6 +594,16 @@ impl TabGroupSkin {
                                     }
                                 }
                             })
+                            // IDEA: middle-click closes the tab.
+                            .on_mouse_down(MouseButton::Middle, {
+                                let group = group.clone();
+                                move |_, window, cx| {
+                                    if group.is_panel_closable(panel_id, cx) {
+                                        cx.stop_propagation();
+                                        group.close(panel_id, window, cx);
+                                    }
+                                }
+                            })
                             // A collapsed group is a strip of tabs with no
                             // content, so there is nothing to rearrange in it.
                             .when(!collapsed, |this| {
@@ -638,6 +652,42 @@ impl TabGroupSkin {
                                         }
                                     })
                                 })
+                            })
+                            // IDEA: right-click a tab for Close / Close Others /
+                            // Close All. `Tab::context_menu` returns `Self`, so
+                            // the bar still receives a plain `Tab`.
+                            .context_menu({
+                                let ctx_group = group.clone();
+                                move |menu, _, _| {
+                                    let g = ctx_group.clone();
+                                    let menu = menu.item(
+                                        PopupMenuItem::new("Close")
+                                            .disabled(!closable)
+                                            .on_click(move |_, window, cx| {
+                                                g.close(panel_id, window, cx)
+                                            }),
+                                    );
+                                    let g = ctx_group.clone();
+                                    let ids = all_ids.clone();
+                                    let menu = menu.item(PopupMenuItem::new("Close Others").on_click(
+                                        move |_, window, cx| {
+                                            for pid in &ids {
+                                                if *pid != panel_id {
+                                                    g.close(*pid, window, cx);
+                                                }
+                                            }
+                                        },
+                                    ));
+                                    let g = ctx_group.clone();
+                                    let ids = all_ids.clone();
+                                    menu.item(PopupMenuItem::new("Close All").on_click(
+                                        move |_, window, cx| {
+                                            for pid in &ids {
+                                                g.close(*pid, window, cx);
+                                            }
+                                        },
+                                    ))
+                                }
                             })
                     })
                     .collect::<Vec<_>>(),

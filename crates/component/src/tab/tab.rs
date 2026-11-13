@@ -1,13 +1,14 @@
 use std::{rc::Rc, time::Duration};
 
 use crate::animation::{Lerp, ease_in_out_cubic};
+use crate::menu::{ContextMenuExt as _, PopupMenu};
 use crate::{ActiveTheme, Icon, IconName, Selectable, Sizable, Size, StyledExt, h_flex};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    Animation, AnimationExt as _, AnyElement, App, Background, ClickEvent, Edges, ElementId,
-    FillOptions, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder, PathStyle,
-    Pixels, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window, canvas,
-    div, point, px, relative,
+    Animation, AnimationExt as _, AnyElement, App, Background, ClickEvent, Context, Edges,
+    ElementId, FillOptions, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
+    PathStyle, Pixels, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
+    Window, canvas, div, point, px, relative,
 };
 
 /// Room between two [`TabVariant::Folder`] tabs, holding their separator.
@@ -560,6 +561,9 @@ pub struct Tab {
     pub(super) hovered: bool,
     pub(super) max_width: Option<Pixels>,
     pub(super) on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
+    /// Right-click menu, built in [`Tab::context_menu`]. Stored rather than
+    /// wrapping the element so a [`super::TabBar`] can still take the `Tab`.
+    context_menu: Option<Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static>>,
 }
 
 impl From<&'static str> for Tab {
@@ -615,6 +619,7 @@ impl Default for Tab {
             size: Size::default(),
             max_width: None,
             on_click: None,
+            context_menu: None,
         }
     }
 }
@@ -707,6 +712,17 @@ impl Tab {
         on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_click = Some(Rc::new(on_click));
+        self
+    }
+
+    /// Attach the context menu shown on right-click. Unlike
+    /// [`ContextMenuExt::context_menu`], which wraps the element and so cannot
+    /// feed a [`super::TabBar`], this returns `Self`.
+    pub fn context_menu(
+        mut self,
+        f: impl Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static,
+    ) -> Self {
+        self.context_menu = Some(Rc::new(f));
         self
     }
 
@@ -919,7 +935,8 @@ impl RenderOnce for Tab {
             inner_content.into_any_element()
         };
 
-        self.base
+        let root = self
+            .base
             .id(self.ix)
             .selected(self.selected)
             .disabled(self.disabled)
@@ -1067,7 +1084,13 @@ impl RenderOnce for Tab {
             })
             .when_some(self.on_click.clone(), |this, on_click| {
                 this.on_click(move |event, window, cx| on_click(event, window, cx))
-            })
+            });
+        match self.context_menu {
+            Some(menu) => root
+                .context_menu(move |m, window, cx| menu(m, window, cx))
+                .into_any_element(),
+            None => root.into_any_element(),
+        }
     }
 }
 
