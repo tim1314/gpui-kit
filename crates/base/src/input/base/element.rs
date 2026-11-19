@@ -6,7 +6,7 @@ use gpui::{
     GlobalElementId,
 };
 use gpui::{
-    HighlightStyle, Hitbox, HitboxBehavior, Hsla, InteractiveElement, IntoElement, LayoutId,
+    AppContext as _, HighlightStyle, Hitbox, HitboxBehavior, Hsla, InteractiveElement, IntoElement, LayoutId,
     LongPressEvent, MouseButton, MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement as _, Path,
     Pixels, Point, Position, ShapedLine, SharedString, Size, Style, Styled as _, TextAlign,
     TextRun, TextStyle, TouchDragEvent, TouchPhase, UnderlineStyle, Window, fill, point, px,
@@ -769,6 +769,34 @@ struct FoldIconLayout {
     line_number_hitbox: Hitbox,
     /// List of (display_row, is_folded, icon_element) pairs for each fold candidate
     icons: Vec<(usize, bool, gpui::AnyElement)>,
+}
+
+/// A gutter decoration bar that shows a tooltip on hover.
+struct GutterTooltip {
+    hitbox: Hitbox,
+    text: SharedString,
+}
+
+/// The hover tooltip content for a gutter decoration bar.
+struct GutterTooltipView {
+    text: SharedString,
+    bg: Hsla,
+    fg: Hsla,
+}
+
+impl gpui::Render for GutterTooltipView {
+    fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
+        gpui::div()
+            .px_2()
+            .py_1()
+            .rounded_md()
+            .bg(self.bg)
+            .border_1()
+            .border_color(self.fg.opacity(0.2))
+            .text_color(self.fg)
+            .text_xs()
+            .child(self.text.clone())
+    }
 }
 
 pub(super) struct TextElement<M: InputModeKind> {
@@ -1684,11 +1712,12 @@ impl<M: InputModeKind> TextElement<M> {
         viewport: &Bounds<Pixels>,
         last_layout: &LastLayout,
         ghost_rows: Option<(usize, Pixels)>,
+        window: &mut Window,
         cx: &App,
-    ) -> Vec<PaintQuad> {
+    ) -> (Vec<PaintQuad>, Vec<GutterTooltip>) {
         let state = self.state.read(cx);
         let Some(width) = state.extras.gutter_decorations_width() else {
-            return Vec::new();
+            return (Vec::new(), Vec::new());
         };
         let line_height = last_layout.line_height;
         let span = visible_buffer_span(&state.text, &state.display_map, &last_layout.visible_range);
@@ -1710,48 +1739,58 @@ impl<M: InputModeKind> TextElement<M> {
         };
 
         let foreground = state.editor_style.foreground;
-        state
+        let mut quads = Vec::new();
+        let mut tooltips = Vec::new();
+        for decoration in state
             .extras
             // One past the end, so a boundary below the last visible line is found.
             .gutter_decorations(span.start..span.end + 1)
-            .into_iter()
-            .flat_map(|decoration| {
-                let color = decoration.color().unwrap_or(foreground);
-                let mut marks = SmallVec::<[PaintQuad; 2]>::new();
-                match decoration_rows(&state.text, &state.display_map, decoration.range()) {
-                    DecorationRows::Lines {
-                        rows,
-                        folded_start: false,
-                    } => marks.push(bar(rows, color)),
-                    // The fold's row takes the folded color, the visible rest the
-                    // decoration's own.
-                    DecorationRows::Lines {
-                        rows,
-                        folded_start: true,
-                    } => {
-                        let folded = decoration.folded_color().unwrap_or(color);
-                        marks.push(bar(rows.start..rows.start + 1, folded));
-                        if rows.len() > 1 {
-                            marks.push(bar(rows.start + 1..rows.end, color));
-                        }
+        {
+            let color = decoration.color().unwrap_or(foreground);
+            let mut marks = SmallVec::<[PaintQuad; 2]>::new();
+            match decoration_rows(&state.text, &state.display_map, decoration.range()) {
+                DecorationRows::Lines {
+                    rows,
+                    folded_start: false,
+                } => marks.push(bar(rows, color)),
+                // The fold's row takes the folded color, the visible rest the
+                // decoration's own.
+                DecorationRows::Lines {
+                    rows,
+                    folded_start: true,
+                } => {
+                    let folded = decoration.folded_color().unwrap_or(color);
+                    marks.push(bar(rows.start..rows.start + 1, folded));
+                    if rows.len() > 1 {
+                        marks.push(bar(rows.start + 1..rows.end, color));
                     }
-                    DecorationRows::Boundary(row) => marks.push(
-                        fill(
-                            Bounds::new(
-                                point(origin_x, top(row) - GUTTER_BOUNDARY_MARK_HEIGHT.half()),
-                                size(width, GUTTER_BOUNDARY_MARK_HEIGHT),
-                            ),
-                            color,
-                        )
-                        .corner_radii(width.half()),
-                    ),
                 }
-                marks
-            })
-            .filter(|mark| {
-                mark.bounds.bottom() >= viewport.top() && mark.bounds.top() <= viewport.bottom()
-            })
-            .collect()
+                DecorationRows::Boundary(row) => marks.push(
+                    fill(
+                        Bounds::new(
+                            point(origin_x, top(row) - GUTTER_BOUNDARY_MARK_HEIGHT.half()),
+                            size(width, GUTTER_BOUNDARY_MARK_HEIGHT),
+                        ),
+                        color,
+                    )
+                    .corner_radii(width.half()),
+                ),
+            }
+            let visible: Vec<PaintQuad> = marks
+                .into_iter()
+                .filter(|mark| {
+                    mark.bounds.bottom() >= viewport.top() && mark.bounds.top() <= viewport.bottom()
+                })
+                .collect();
+            if let Some(text) = decoration.tooltip() {
+                if let Some(first) = visible.first() {
+                    let hitbox = window.insert_hitbox(first.bounds, HitboxBehavior::Normal);
+                    tooltips.push(GutterTooltip { hitbox, text: text.clone() });
+                }
+            }
+            quads.extend(visible);
+        }
+        (quads, tooltips)
     }
 
     fn layout_fold_icons(
@@ -2038,6 +2077,42 @@ impl<M: InputModeKind> TextElement<M> {
 
             icon.paint(window, cx);
         }
+    }
+
+    /// Show a gutter decoration's tooltip while its bar is hovered. Mouse moves
+    /// do not repaint the editor, so repaint when the pointer enters or leaves.
+    fn paint_gutter_tooltips(&self, tooltips: &[GutterTooltip], window: &mut Window, cx: &mut App) {
+        if tooltips.is_empty() {
+            return;
+        }
+        let hovered = tooltips.iter().find(|t| t.hitbox.is_hovered(window));
+        let any_hovered = hovered.is_some();
+        let hitboxes: Vec<Hitbox> = tooltips.iter().map(|t| t.hitbox.clone()).collect();
+        let entity_id = self.state.entity_id();
+        window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
+            if phase.bubble() {
+                let now = hitboxes.iter().any(|h| h.is_hovered(window));
+                if now != any_hovered {
+                    cx.notify(entity_id);
+                }
+            }
+        });
+        let Some(t) = hovered else {
+            return;
+        };
+        let (bg, fg) = {
+            let state = self.state.read(cx);
+            (state.editor_style.background, state.editor_style.foreground)
+        };
+        let hitbox = t.hitbox.clone();
+        let view = cx
+            .new(|_| GutterTooltipView { text: t.text.clone(), bg, fg })
+            .into();
+        window.set_tooltip(gpui::AnyTooltip {
+            view,
+            mouse_position: window.mouse_position(),
+            check_visible_and_update: std::rc::Rc::new(move |_, window, _| hitbox.is_hovered(window)),
+        });
     }
 
     fn token_element(
@@ -2949,6 +3024,7 @@ pub(super) struct PrepaintState {
     range_decoration_fills: Vec<(Path<Pixels>, Hsla)>,
     range_decoration_frames: Vec<(Path<Pixels>, Hsla)>,
     gutter_decorations: Vec<PaintQuad>,
+    gutter_tooltips: Vec<GutterTooltip>,
     /// How far the gutter decoration strip pushes the line numbers right.
     line_number_offset: Pixels,
     hover_definition_hitbox: Option<Hitbox>,
@@ -3700,12 +3776,13 @@ impl<M: InputModeKind> Element for TextElement<M> {
                 .unwrap_or_default();
             (rows.end.saturating_sub(1), ghost_lines_height)
         });
-        let gutter_decorations = self.layout_gutter_decorations(
+        let (gutter_decorations, gutter_tooltips) = self.layout_gutter_decorations(
             original_x,
             &bounds,
             &input_bounds,
             &last_layout,
             ghost_rows,
+            window,
             cx,
         );
         let line_number_offset = self
@@ -3809,6 +3886,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
             range_decoration_fills,
             range_decoration_frames,
             gutter_decorations,
+            gutter_tooltips,
             line_number_offset,
             indent_guides_path,
             fold_icon_layout,
@@ -4136,6 +4214,7 @@ impl<M: InputModeKind> Element for TextElement<M> {
         for mark in std::mem::take(&mut prepaint.gutter_decorations) {
             window.paint_quad(mark);
         }
+        self.paint_gutter_tooltips(&prepaint.gutter_tooltips, window, cx);
 
         // Paint fold icons (only visible on hover or for current line)
         self.paint_fold_icons(
@@ -4420,7 +4499,7 @@ mod tests {
         RangeDecoration, Redo, Undo,
     };
     use gpui::{
-        AppContext as _, Context, EntityInputHandler as _, ListAlignment, ListOffset, ListState,
+        Context, EntityInputHandler as _, ListAlignment, ListOffset, ListState,
         Render, TestAppContext, VisualTestContext, div, list, prelude::FluentBuilder as _,
     };
 
@@ -5801,12 +5880,13 @@ mod tests {
                 let layout = state.last_layout.as_ref().unwrap();
                 let line_height = layout.line_height;
                 let bounds = state.input_bounds;
-                let marks = TextElement::new(editor.clone()).layout_gutter_decorations(
+                let (marks, _) = TextElement::new(editor.clone()).layout_gutter_decorations(
                     bounds.origin.x,
                     &bounds,
                     &bounds,
                     layout,
                     None,
+                    window,
                     cx,
                 );
                 assert_eq!(
@@ -5930,12 +6010,13 @@ mod tests {
             let layout = state.last_layout.as_ref().unwrap();
             let line_height = layout.line_height;
             let bounds = state.input_bounds;
-            let marks = TextElement::new(editor.clone()).layout_gutter_decorations(
+            let (marks, _) = TextElement::new(editor.clone()).layout_gutter_decorations(
                 bounds.origin.x,
                 &bounds,
                 &bounds,
                 layout,
                 None,
+                window,
                 cx,
             );
             let colors: Vec<_> = marks.iter().map(|mark| mark.background).collect();
@@ -5992,12 +6073,13 @@ mod tests {
             // Prepaint hands over the text bounds moved by the scroll offset.
             let mut scrolled = state.input_bounds;
             scrolled.origin.y -= layout.line_height * 40.;
-            let marks = TextElement::new(editor.clone()).layout_gutter_decorations(
+            let (marks, _) = TextElement::new(editor.clone()).layout_gutter_decorations(
                 state.input_bounds.origin.x,
                 &scrolled,
                 &state.input_bounds,
                 layout,
                 None,
+                window,
                 cx,
             );
             assert!(!marks.is_empty() && marks.len() <= found.len());

@@ -1,7 +1,7 @@
 use crate::input::{EditorMode, TextareaExtras, TextareaMode};
 use std::{collections::BTreeMap, ops::Range};
 
-use gpui::{App, Context, HighlightStyle, Hsla, Pixels, WeakEntity};
+use gpui::{App, Context, HighlightStyle, Hsla, Pixels, SharedString, WeakEntity};
 use ropey::Rope;
 use sum_tree::Bias;
 
@@ -80,6 +80,7 @@ pub struct GutterDecoration {
     range: Range<usize>,
     color: Option<Hsla>,
     folded_color: Option<Hsla>,
+    tooltip: Option<SharedString>,
 }
 
 impl GutterDecoration {
@@ -89,6 +90,7 @@ impl GutterDecoration {
             range,
             color: None,
             folded_color: None,
+            tooltip: None,
         }
     }
 
@@ -117,6 +119,17 @@ impl GutterDecoration {
     /// Set the color for the bar on a fold's row when the range starts inside that fold.
     pub fn with_folded_color(mut self, color: Hsla) -> Self {
         self.folded_color = Some(color);
+        self
+    }
+
+    /// The hover tooltip text for this mark, or `None` for no tooltip.
+    pub fn tooltip(&self) -> Option<&SharedString> {
+        self.tooltip.as_ref()
+    }
+
+    /// Show `tooltip` when the pointer hovers the mark's gutter bar.
+    pub fn with_tooltip(mut self, tooltip: impl Into<SharedString>) -> Self {
+        self.tooltip = Some(tooltip.into());
         self
     }
 }
