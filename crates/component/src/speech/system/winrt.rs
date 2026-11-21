@@ -136,7 +136,6 @@ impl SpeechRecognizer for PlatformRecognizer {
         session.completed_token = Some(
             continuous
                 .Completed(&TypedEventHandler::new({
-                    let messages = messages.clone();
                     move |_, args: &Option<SpeechContinuousRecognitionCompletedEventArgs>| {
                         if let Some(args) = args {
                             _ = messages.try_send(Message::Completed(args.Status()?));
