@@ -364,6 +364,7 @@ mod tests {
                     selected_index: None,
                     action_context: None,
                     scroll_handle: ScrollHandle::new(),
+                    on_dismiss: None,
                 }),
                 first_focus,
                 second_focus,
