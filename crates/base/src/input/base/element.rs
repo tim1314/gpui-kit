@@ -6,11 +6,11 @@ use gpui::{
     GlobalElementId,
 };
 use gpui::{
-    AppContext as _, HighlightStyle, Hitbox, HitboxBehavior, Hsla, InteractiveElement, IntoElement, LayoutId,
-    LongPressEvent, MouseButton, MouseMoveEvent, MouseUpEvent, PaintQuad, ParentElement as _, Path,
-    Pixels, Point, Position, ShapedLine, SharedString, Size, Style, Styled as _, TextAlign,
-    TextRun, TextStyle, TouchDragEvent, TouchPhase, UnderlineStyle, Window, fill, point, px,
-    relative, size,
+    AppContext as _, HighlightStyle, Hitbox, HitboxBehavior, Hsla, InteractiveElement, IntoElement,
+    LayoutId, LongPressEvent, MouseButton, MouseMoveEvent, MouseUpEvent, PaintQuad,
+    ParentElement as _, Path, Pixels, Point, Position, ShapedLine, SharedString, Size, Style,
+    Styled as _, TextAlign, TextRun, TextStyle, TouchDragEvent, TouchPhase, UnderlineStyle, Window,
+    fill, point, px, relative, size,
 };
 use ropey::Rope;
 use smallvec::SmallVec;
@@ -1835,6 +1835,7 @@ impl<M: InputModeKind> TextElement<M> {
     /// Bars and boundary pills for gutter decorations, in the strip at `origin_x`
     /// before the line numbers. Rows below `ghost_rows.0` move down by the
     /// inline completion's ghost lines, `ghost_rows.1` tall, as line numbers do.
+    #[allow(clippy::too_many_arguments)]
     fn layout_gutter_decorations(
         &self,
         origin_x: Pixels,
@@ -1915,7 +1916,10 @@ impl<M: InputModeKind> TextElement<M> {
             if let Some(text) = decoration.tooltip() {
                 if let Some(first) = visible.first() {
                     let hitbox = window.insert_hitbox(first.bounds, HitboxBehavior::Normal);
-                    tooltips.push(GutterTooltip { hitbox, text: text.clone() });
+                    tooltips.push(GutterTooltip {
+                        hitbox,
+                        text: text.clone(),
+                    });
                 }
             }
             quads.extend(visible);
@@ -2236,12 +2240,18 @@ impl<M: InputModeKind> TextElement<M> {
         };
         let hitbox = t.hitbox.clone();
         let view = cx
-            .new(|_| GutterTooltipView { text: t.text.clone(), bg, fg })
+            .new(|_| GutterTooltipView {
+                text: t.text.clone(),
+                bg,
+                fg,
+            })
             .into();
         window.set_tooltip(gpui::AnyTooltip {
             view,
             mouse_position: window.mouse_position(),
-            check_visible_and_update: std::rc::Rc::new(move |_, window, _| hitbox.is_hovered(window)),
+            check_visible_and_update: std::rc::Rc::new(move |_, window, _| {
+                hitbox.is_hovered(window)
+            }),
         });
     }
 
@@ -4724,8 +4734,8 @@ mod tests {
         RangeDecoration, Redo, Undo,
     };
     use gpui::{
-        Context, EntityInputHandler as _, ListAlignment, ListOffset, ListState,
-        Render, TestAppContext, VisualTestContext, div, list, prelude::FluentBuilder as _,
+        Context, EntityInputHandler as _, ListAlignment, ListOffset, ListState, Render,
+        TestAppContext, VisualTestContext, div, list, prelude::FluentBuilder as _,
     };
 
     #[test]
