@@ -160,6 +160,14 @@ impl InputEditsEvent {
     }
 }
 
+/// Emitted immediately before a paste applies its edits, so a subscriber can
+/// treat the following [`InputEditsEvent`] as a paste (e.g. imports-on-paste).
+/// Carries the clipboard text about to be inserted.
+#[derive(Clone)]
+pub struct InputPasteEvent {
+    pub text: String,
+}
+
 pub(super) const CONTEXT: &str = "Input";
 
 pub(crate) fn init(cx: &mut App) {
@@ -508,6 +516,9 @@ pub struct InputBaseState<M: InputModeKind> {
     pub(super) selecting: bool,
     /// Anchor point of an in-progress columnar (block) selection.
     pub(super) column_select_start: Option<ColumnarPoint>,
+    /// Persistent column (block) selection mode: a plain drag selects a block
+    /// without needing Alt+Shift (IDEA's Column Selection Mode).
+    pub(super) column_selection_mode: bool,
     /// The selection a long press made, with its handles and edit menu.
     pub(super) touch_selection: super::touch::TouchSelection,
     pub(crate) disabled: bool,
@@ -756,6 +767,7 @@ impl InputPresentation {
 
 impl<M: InputModeKind> EventEmitter<InputEvent> for InputBaseState<M> {}
 impl<M: InputModeKind> EventEmitter<InputEditsEvent> for InputBaseState<M> {}
+impl<M: InputModeKind> EventEmitter<InputPasteEvent> for InputBaseState<M> {}
 
 impl<M: InputModeKind> InputBaseState<M> {
     #[doc(hidden)]
@@ -1044,6 +1056,7 @@ impl<M: InputModeKind> InputBaseState<M> {
             last_selected_range: None,
             last_input_edits: Vec::new(),
             column_select_start: None,
+            column_selection_mode: false,
             last_cursor: None,
             ime_anchor: None,
             scroll_handle: ScrollHandle::new(),
@@ -2929,11 +2942,14 @@ impl<M: InputModeKind> InputBaseState<M> {
 
         // Multi-cursor placement, multi-line only.
         if self.is_multi_line() && event.button == MouseButton::Left {
-            if event.modifiers.alt
-                && (event.modifiers.shift || (cfg!(target_os = "linux") && event.modifiers.control))
+            if self.column_selection_mode
+                || (event.modifiers.alt
+                    && (event.modifiers.shift
+                        || (cfg!(target_os = "linux") && event.modifiers.control)))
             {
-                // Alt+Shift starts a block; Linux also accepts Ghostty's Ctrl+Alt.
-                // Mark selecting so the drag handler extends the block.
+                // Alt+Shift starts a block (or Column Selection Mode is on); Linux
+                // also accepts Ghostty's Ctrl+Alt. Mark selecting so the drag
+                // handler extends the block.
                 self.column_select_start = Some(ColumnarPoint::new(offset, columns_past_line_end));
                 self.selecting = true;
                 self.move_to_with_affinity(offset, None, line_end_affinity, cx);
@@ -3436,6 +3452,10 @@ impl<M: InputModeKind> InputBaseState<M> {
         };
         // A paste is one atomic edit, never part of a typing run.
         self.undo_manager.set_pending_intent(EditIntent::Atomic);
+        // Tell subscribers the next edit batch is a paste (imports-on-paste).
+        cx.emit(InputPasteEvent {
+            text: new_text.clone(),
+        });
 
         if !self.is_multi_line() {
             new_text = new_text.replace('\n', "");
@@ -3786,6 +3806,18 @@ impl<M: InputModeKind> InputBaseState<M> {
         self.selections.remove_all_but_active();
         self.set_selection(0, self.text.len());
         cx.notify();
+    }
+
+    /// Toggle persistent column (block) selection mode: a plain left drag selects
+    /// a rectangular block without Alt+Shift (IDEA's Column Selection Mode).
+    pub fn set_column_selection_mode(&mut self, on: bool, cx: &mut Context<Self>) {
+        self.column_selection_mode = on;
+        cx.notify();
+    }
+
+    /// Whether persistent column selection mode is on.
+    pub fn column_selection_mode(&self) -> bool {
+        self.column_selection_mode
     }
 
     /// Set the selected range using UTF-8 byte offsets, removing additional cursors.

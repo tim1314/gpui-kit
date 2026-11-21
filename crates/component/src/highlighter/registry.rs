@@ -1,4 +1,6 @@
-use gpui::{App, FontWeight, HighlightStyle, Hsla, SharedString};
+use gpui::{
+    App, FontWeight, HighlightStyle, Hsla, SharedString, StrikethroughStyle, UnderlineStyle,
+};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
@@ -228,6 +230,10 @@ pub struct ThemeStyle {
     color: Option<Hsla>,
     font_style: Option<FontStyle>,
     font_weight: Option<FontWeightContent>,
+    #[serde(default)]
+    underline: Option<UnderlineStyle>,
+    #[serde(default)]
+    strikethrough: Option<StrikethroughStyle>,
 }
 
 impl From<ThemeStyle> for HighlightStyle {
@@ -236,6 +242,8 @@ impl From<ThemeStyle> for HighlightStyle {
             color: style.color,
             font_weight: style.font_weight.map(Into::into),
             font_style: style.font_style.map(Into::into),
+            underline: style.underline,
+            strikethrough: style.strikethrough,
             ..Default::default()
         }
     }

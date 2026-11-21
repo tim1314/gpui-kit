@@ -7,8 +7,8 @@ use gpui::prelude::FluentBuilder as _;
 use gpui::{
     Animation, AnimationExt as _, AnyElement, App, Background, ClickEvent, Context, Edges,
     ElementId, FillOptions, Hsla, InteractiveElement, IntoElement, ParentElement, PathBuilder,
-    PathStyle, Pixels, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled,
-    Window, canvas, div, point, px, relative,
+    PathStyle, Pixels, Point, RenderOnce, SharedString, StatefulInteractiveElement, Styled, Window,
+    canvas, div, point, px, relative,
 };
 use gpui_base::LogicalStyledExt as _;
 
@@ -564,7 +564,8 @@ pub struct Tab {
     pub(super) on_click: Option<Rc<dyn Fn(&ClickEvent, &mut Window, &mut App) + 'static>>,
     /// Right-click menu, built in [`Tab::context_menu`]. Stored rather than
     /// wrapping the element so a [`super::TabBar`] can still take the `Tab`.
-    context_menu: Option<Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static>>,
+    context_menu:
+        Option<Rc<dyn Fn(PopupMenu, &mut Window, &mut Context<PopupMenu>) -> PopupMenu + 'static>>,
 }
 
 impl From<&'static str> for Tab {

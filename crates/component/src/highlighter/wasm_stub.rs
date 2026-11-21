@@ -5,7 +5,7 @@
 //!
 //! Note: diagnostics.rs is available in WASM, only syntax highlighting requires stubs.
 
-use gpui::{HighlightStyle, SharedString};
+use gpui::{HighlightStyle, SharedString, StrikethroughStyle, UnderlineStyle};
 use std::ops::Range;
 use std::time::Duration;
 
@@ -154,6 +154,10 @@ pub struct ThemeStyle {
     pub color: Option<gpui::Hsla>,
     pub font_style: Option<FontStyle>,
     pub font_weight: Option<FontWeightContent>,
+    #[serde(default)]
+    pub underline: Option<UnderlineStyle>,
+    #[serde(default)]
+    pub strikethrough: Option<StrikethroughStyle>,
 }
 
 impl From<ThemeStyle> for HighlightStyle {
@@ -176,6 +180,8 @@ impl From<ThemeStyle> for HighlightStyle {
                 FontStyle::Italic => gpui::FontStyle::Italic,
                 FontStyle::Underline => gpui::FontStyle::Normal,
             }),
+            underline: style.underline,
+            strikethrough: style.strikethrough,
             ..Default::default()
         }
     }

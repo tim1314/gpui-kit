@@ -667,23 +667,22 @@ impl TabGroupSkin {
                                 move |menu, _, _| {
                                     let g = ctx_group.clone();
                                     let menu = menu.item(
-                                        PopupMenuItem::new("Close")
-                                            .disabled(!closable)
-                                            .on_click(move |_, window, cx| {
-                                                g.close(panel_id, window, cx)
-                                            }),
+                                        PopupMenuItem::new("Close").disabled(!closable).on_click(
+                                            move |_, window, cx| g.close(panel_id, window, cx),
+                                        ),
                                     );
                                     let g = ctx_group.clone();
                                     let ids = all_ids.clone();
-                                    let menu = menu.item(PopupMenuItem::new("Close Others").on_click(
-                                        move |_, window, cx| {
-                                            for pid in &ids {
-                                                if *pid != panel_id {
-                                                    g.close(*pid, window, cx);
+                                    let menu =
+                                        menu.item(PopupMenuItem::new("Close Others").on_click(
+                                            move |_, window, cx| {
+                                                for pid in &ids {
+                                                    if *pid != panel_id {
+                                                        g.close(*pid, window, cx);
+                                                    }
                                                 }
-                                            }
-                                        },
-                                    ));
+                                            },
+                                        ));
                                     let g = ctx_group.clone();
                                     let ids = all_ids.clone();
                                     menu.item(PopupMenuItem::new("Close All").on_click(

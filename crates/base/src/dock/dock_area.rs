@@ -1605,19 +1605,21 @@ impl Render for DockArea {
                         .overflow_hidden()
                         .child(self.render_node(self.center.root(), window, cx));
                     if self.bottom_spans {
-                        frame.flex_col().child(
-                            div()
-                                .flex()
-                                .flex_row()
-                                .flex_1()
-                                .min_h_0()
-                                .min_w_0()
-                                .overflow_hidden()
-                                .when_some(left, ParentElement::child)
-                                .child(center)
-                                .when_some(right, ParentElement::child),
-                        )
-                        .when_some(bottom, ParentElement::child)
+                        frame
+                            .flex_col()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .min_w_0()
+                                    .overflow_hidden()
+                                    .when_some(left, ParentElement::child)
+                                    .child(center)
+                                    .when_some(right, ParentElement::child),
+                            )
+                            .when_some(bottom, ParentElement::child)
                     } else {
                         frame
                             .when_some(left, ParentElement::child)
